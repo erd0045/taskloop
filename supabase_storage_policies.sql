@@ -1,4 +1,13 @@
--- Make sure attachment columns exist and have proper types
+
+-- First add the columns if they don't exist
+ALTER TABLE public.messages 
+  ADD COLUMN IF NOT EXISTS attachment JSONB DEFAULT '{}'::JSONB,
+  ADD COLUMN IF NOT EXISTS attachment_name TEXT,
+  ADD COLUMN IF NOT EXISTS attachment_type TEXT,
+  ADD COLUMN IF NOT EXISTS attachment_url TEXT,
+  ADD COLUMN IF NOT EXISTS attachment_size BIGINT;
+
+-- Now alter the columns with proper types
 ALTER TABLE public.messages 
   ALTER COLUMN attachment TYPE JSONB USING COALESCE(attachment::JSONB, '{}'::JSONB),
   ALTER COLUMN attachment_name TYPE TEXT,
@@ -6,7 +15,7 @@ ALTER TABLE public.messages
   ALTER COLUMN attachment_url TYPE TEXT,
   ALTER COLUMN attachment_size TYPE BIGINT;
 
--- Add index to improve query performance
+-- Make sure indexes exist for performance
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON public.messages(chat_id);
 
 -- Ensure RLS (Row Level Security) is enabled
