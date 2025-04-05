@@ -1,38 +1,35 @@
-
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
-import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/context/AuthContext';
-import { Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
+import { Loader2 } from "lucide-react";
 
 const Signup = () => {
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [usernameError, setUsernameError] = useState('');
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [usernameError, setUsernameError] = useState("");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
   const { signUp, user } = useAuth();
 
-  // Redirect if already logged in
   useEffect(() => {
     if (user) {
-      navigate('/home');
+      navigate("/home");
     }
   }, [user, navigate]);
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Reset error state
-    setUsernameError('');
+
+    setUsernameError("");
     setLoading(true);
-    
+
     if (password !== confirmPassword) {
       toast({
         title: "Password Mismatch",
@@ -43,16 +40,20 @@ const Signup = () => {
       return;
     }
 
-    
-    if (password.length < 6) {
-     if (!/(?=.*[a-z])/.test(password) ||  !/(?=.*[A-Z])/.test(password) || !/(?=.*\d)/.test(password) || !/(?=.*[\W_])/.test(password) || password.length < 8 )
-     {
-       toast({
-       title: "Invalid Password",
-       description: "Password must be at least 8 characters long and contain uppercase, lowercase, numbers, and special characters.",
-       variant: "destructive",
-     });
-        setLoading(false);
+    if (
+      !/(?=.*[a-z])/.test(password) ||
+      !/(?=.*[A-Z])/.test(password) ||
+      !/(?=.*\d)/.test(password) ||
+      !/(?=.*[\W_])/.test(password) ||
+      password.length < 8
+    ) {
+      toast({
+        title: "Invalid Password",
+        description:
+          "Password must be at least 8 characters long and contain uppercase, lowercase, numbers, and special characters.",
+        variant: "destructive",
+      });
+      setLoading(false);
       return;
     }
 
@@ -72,14 +73,16 @@ const Signup = () => {
     };
 
     const { error } = await signUp(email, password, userData);
-    
+
     if (error) {
-      // Check if error is related to unique username constraint
-      if (error.message?.includes('profiles_username_unique')) {
-        setUsernameError('This username is already taken. Please choose another one.');
+      if (error.message?.includes("profiles_username_unique")) {
+        setUsernameError(
+          "This username is already taken. Please choose another one.",
+        );
       }
+      setLoading(false);
     }
-    
+
     setLoading(false);
   };
 
@@ -88,18 +91,20 @@ const Signup = () => {
       <div className="w-full text-center py-12">
         <h1 className="text-5xl font-bold text-primary">TaskLoop</h1>
       </div>
-      
+
       <div className="w-full max-w-md px-4 md:px-0">
         <div className="border-border bg-card p-6 rounded-lg shadow-md space-y-6 relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary/50 via-primary to-accent"></div>
-          
+
           <div className="space-y-1">
-            <h2 className="text-2xl font-bold text-center">Create an Account</h2>
+            <h2 className="text-2xl font-bold text-center">
+              Create an Account
+            </h2>
             <p className="text-center text-muted-foreground text-sm">
               Sign up to start using Task Loop
             </p>
           </div>
-          
+
           <form onSubmit={handleSignup}>
             <div className="grid gap-4">
               <div className="grid gap-2">
@@ -108,7 +113,7 @@ const Signup = () => {
                   id="username"
                   type="text"
                   placeholder="username"
-                  className={`input-dark ${usernameError ? 'border-destructive' : ''}`}
+                  className={`input-dark ${usernameError ? "border-destructive" : ""}`}
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   disabled={loading}
@@ -118,7 +123,7 @@ const Signup = () => {
                   <p className="text-sm text-destructive">{usernameError}</p>
                 )}
               </div>
-              
+
               <div className="grid gap-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -160,9 +165,9 @@ const Signup = () => {
                   required
                 />
               </div>
-              
-              <Button 
-                type="submit" 
+
+              <Button
+                type="submit"
                 className="w-full bg-primary hover:bg-primary/90"
                 disabled={loading}
               >
@@ -172,12 +177,12 @@ const Signup = () => {
                     Creating Account...
                   </>
                 ) : (
-                  'Sign Up'
+                  "Sign Up"
                 )}
               </Button>
             </div>
           </form>
-          
+
           <div className="flex justify-center pt-4">
             <p className="text-sm text-muted-foreground">
               Already have an account?{" "}
