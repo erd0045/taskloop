@@ -40,7 +40,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (newMessage.trim() || filePreview) {
       // Add message to local state immediately for better UX
       if (user) {
@@ -55,17 +55,17 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
           attachment: filePreview || undefined,
           isOptimistic: true
         };
-        
+
         setLocalMessages(prevMessages => [...prevMessages, optimisticMessage]);
       }
-      
+
       // Send the actual message
       await onSendMessage(newMessage, filePreview || undefined);
-      
+
       // Reset form state
       setNewMessage('');
       setFilePreview(null);
-      
+
       // Scroll to bottom after sending
       setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -89,25 +89,28 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
     }
 
     setIsUploading(true);
-    
+
     try {
       // Create unique filename to avoid collisions
       const fileExt = file.name.split('.').pop();
       const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
       const filePath = `${user?.id}/${fileName}`;
-      
+
       console.log("Attempting to upload file to chat_attachments bucket:", filePath);
-      
+
       // Try using the RLS authenticated client to upload
       console.log('Attempting upload with RLS authenticated client');
-      
+
       // For security, ensure the path includes user ID to isolate user files
       const secureFilePath = `${user?.id}/${fileName}`;
-      
+
       // First try using user-content bucket which is more likely to be properly configured
       console.log("Attempting upload to user-content bucket");
       const fallbackPath = `chat_files/${user?.id}/${fileName}`;
-      
+
+      let uploadBucket: string;
+      let fileUrl: string;
+
       try {
         const { data: fallbackData, error: fallbackError } = await supabase.storage
           .from('user-content')
@@ -115,15 +118,15 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
             cacheControl: '3600',
             upsert: true
           });
-          
+
         if (fallbackError) {
           console.error('user-content upload failed:', fallbackError);
-          
+
           // If the error is a policy violation, it's likely a permissions issue
           if (fallbackError.message && fallbackError.message.includes('policy')) {
             throw new Error(`Upload failed due to permissions: ${fallbackError.message}. Please contact administrator.`);
           }
-          
+
           // Try chat_attachments as a last resort
           console.log("Falling back to chat_attachments bucket");
           const { data: uploadData, error: uploadError } = await supabase.storage
@@ -132,40 +135,26 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
               cacheControl: '3600',
               upsert: true
             });
-            
+
           if (uploadError) {
             console.error('chat_attachments upload failed:', uploadError);
             throw new Error(`Upload failed: ${uploadError.message}`);
           }
-          
-          // Get URL from chat_attachments bucket
-          const { data: publicUrlData } = supabase.storage
+
+          uploadBucket = 'chat_attachments';
+          const { data: publicUrlData } = await supabase.storage
             .from('chat_attachments')
             .getPublicUrl(secureFilePath);
-            
-          if (!publicUrlData || !publicUrlData.publicUrl) {
-            throw new Error("Failed to get public URL");
-          }
-          
-          return {
-            data: secureFilePath,
-            publicUrl: publicUrlData.publicUrl
-          };
+          fileUrl = publicUrlData.publicUrl;
+
+        } else {
+          uploadBucket = 'user-content';
+          const { data: publicUrlData } = await supabase.storage
+            .from('user-content')
+            .getPublicUrl(fallbackPath);
+          fileUrl = publicUrlData.publicUrl;
         }
-        
-        // Successfully uploaded to user-content
-        const { data: fallbackUrlData } = supabase.storage
-          .from('user-content')
-          .getPublicUrl(fallbackPath);
-          
-        if (!fallbackUrlData || !fallbackUrlData.publicUrl) {
-          throw new Error("Failed to get public URL");
-        }
-        
-        return {
-          data: fallbackPath,
-          publicUrl: fallbackUrlData.publicUrl
-        };
+
       } catch (error: any) {
         console.error('All upload attempts failed:', error);
         if (error.message && error.message.includes('policy')) {
@@ -173,40 +162,42 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         }
         throw error;
       }
-      
-      // Get public URL from the successfully uploaded bucket
-      const { data: publicUrlData } = uploadData 
-        ? supabase.storage.from('chat_attachments').getPublicUrl(filePath)
-        : null;
-        
-      if (!publicUrlData || !publicUrlData.publicUrl) {
-        throw new Error("Failed to get public URL");
-      }
-      
-      // Create file attachment object
+
+      console.log('File uploaded successfully to bucket:', uploadBucket);
+      console.log('File public URL:', fileUrl);
+
       const attachment: FileAttachment = {
         id: `file-${Date.now()}`,
         name: file.name,
         type: file.type,
-        url: publicUrlData.publicUrl,
+        url: fileUrl,
         size: file.size,
       };
-      
+
       console.log("File uploaded successfully:", attachment);
-      
+
       setFilePreview(attachment);
     } catch (error: any) {
-      console.error("Error uploading file:", error);
+      console.error('Error uploading file:', error);
+      let errorMessage = "Something went wrong while uploading the file";
+
+      if (error.message) {
+        if (error.message.includes('policy')) {
+          errorMessage = "Upload failed due to security policy. Please ensure you're logged in and have permission to upload.";
+        } else if (error.message.includes('size')) {
+          errorMessage = "File size exceeds the maximum allowed limit (5MB).";
+        } else if (error.message.includes('not found')) {
+          errorMessage = "Storage bucket not found. Please refresh and try again.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+
       toast({
         title: "Upload failed",
-        description: error.message || "Failed to upload file. Please try again.",
+        description: errorMessage,
         variant: "destructive"
       });
-      
-      // Reset file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
     } finally {
       setIsUploading(false);
     }
@@ -225,7 +216,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         const bucketIndex = pathParts.findIndex(part => part === 'storage') + 2; // +2 to skip 'storage/v1/'
         if (bucketIndex >= 2) {
           const filePath = pathParts.slice(bucketIndex).join('/');
-          
+
           // Delete the file from storage
           supabase.storage
             .from('chat_attachments')
@@ -241,7 +232,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         console.error("Error parsing file URL:", e);
       }
     }
-    
+
     setFilePreview(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -255,10 +246,10 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         const unreadMessages = localMessages.filter(
           msg => !msg.read && msg.senderId !== user.id && !msg.isOptimistic
         );
-        
+
         if (unreadMessages.length > 0) {
           const messageIds = unreadMessages.map(msg => msg.id);
-          
+
           await supabase
             .from('messages')
             .update({ read: true })
@@ -266,7 +257,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         }
       }
     };
-    
+
     markMessagesAsRead();
   }, [localMessages, user, chat.id]);
 
@@ -277,7 +268,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
   // Set up real-time message subscription
   useEffect(() => {
     if (!chat.id) return;
-    
+
     const channel = supabase
       .channel(`chat-messages-${chat.id}`)
       .on('postgres_changes', 
@@ -289,7 +280,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         }, 
         async (payload) => {
           console.log('New message received:', payload);
-          
+
           // If this message was from another user, add it to our local state
           if (payload.new && payload.new.sender_id !== user?.id) {
             // Fetch sender info
@@ -298,15 +289,15 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
               .select('username')
               .eq('id', payload.new.sender_id)
               .single();
-              
+
             let attachment: FileAttachment | undefined = undefined;
-            
+
             if (payload.new.attachment) {
               try {
                 const parsedAttachment = typeof payload.new.attachment === 'string' 
                   ? JSON.parse(payload.new.attachment) 
                   : payload.new.attachment;
-                  
+
                 attachment = {
                   id: parsedAttachment.id || `file-${Date.now()}`,
                   name: parsedAttachment.name,
@@ -318,7 +309,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
                 console.error("Error parsing attachment:", e);
               }
             }
-            
+
             const newMessage: MessageType = {
               id: payload.new.id,
               senderId: payload.new.sender_id,
@@ -329,7 +320,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
               read: false,
               attachment: attachment
             };
-            
+
             // Add to local state
             setLocalMessages(prevMessages => {
               // Filter out optimistic messages that match this one
@@ -343,7 +334,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         }
       )
       .subscribe();
-      
+
     return () => {
       supabase.removeChannel(channel);
     };
@@ -362,7 +353,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         </Avatar>
         <h3 className="font-medium">{chat.participantName}</h3>
       </div>
-      
+
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {localMessages.length > 0 ? (
           localMessages.map((message) => (
@@ -380,11 +371,11 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
                 } ${message.isOptimistic ? 'opacity-70' : ''}`}
               >
                 {message.content && <p>{message.content}</p>}
-                
+
                 {message.attachment && (
                   <FileAttachmentDisplay file={message.attachment} />
                 )}
-                
+
                 <div
                   className={`text-xs mt-1 ${
                     message.senderId === user?.id
@@ -405,7 +396,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         )}
         <div ref={messagesEndRef} />
       </div>
-      
+
       <form onSubmit={handleSendMessage} className="p-4 border-t">
         {filePreview && (
           <div className="mb-2 p-2 bg-muted rounded flex items-center justify-between">
@@ -425,7 +416,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
             </Button>
           </div>
         )}
-        
+
         <div className="flex items-center gap-2">
           <input
             type="file"
@@ -434,7 +425,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
             className="hidden"
             accept="image/*,.pdf,.doc,.docx,.txt,.zip"
           />
-          
+
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -457,7 +448,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          
+
           <Input
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
@@ -465,7 +456,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
             className="flex-1"
             disabled={isUploading || isSending}
           />
-          
+
           <Button 
             type="submit" 
             size="icon" 
