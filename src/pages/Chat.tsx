@@ -287,36 +287,55 @@ const Chat = () => {
       };
       
       if (attachment) {
-        // Store attachment as a JSON string to ensure proper serialization
-        newMessage.attachment = JSON.stringify(attachment);
-        // Also store fields separately for backward compatibility
-        newMessage.attachment_name = attachment.name;
-        newMessage.attachment_type = attachment.type;
-        newMessage.attachment_url = attachment.url;
-        newMessage.attachment_size = attachment.size;
-        
-        console.log("Sending message with attachment:", newMessage);
+        try {
+          // Store attachment as a clean object to avoid JSON parsing issues
+          const cleanAttachment = {
+            id: attachment.id,
+            name: attachment.name,
+            type: attachment.type,
+            url: attachment.url,
+            size: attachment.size
+          };
+          
+          // Store the clean attachment object directly (Supabase will handle JSONB conversion)
+          newMessage.attachment = cleanAttachment;
+          // Also store fields separately for easier querying
+          newMessage.attachment_name = cleanAttachment.name;
+          newMessage.attachment_type = cleanAttachment.type;
+          newMessage.attachment_url = cleanAttachment.url;
+          newMessage.attachment_size = cleanAttachment.size;
+          
+          console.log("Sending message with attachment:", JSON.stringify(newMessage));
+        } catch (err) {
+          console.error("Error preparing attachment:", err);
+          throw new Error("Failed to prepare attachment data");
+        }
       }
       
-      const { data, error } = await supabase
-        .from('messages')
-        .insert(newMessage)
-        .select();
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .insert(newMessage)
+          .select();
         
       if (error) {
-        console.error('Error details:', error);
-        throw error;
+          console.error('Error details:', error);
+          throw new Error(`Database error: ${error.message}`);
+        }
+        
+        console.log("Message inserted successfully:", data);
+        
+        // Refresh the messages to include the newly sent message
+        fetchMessages(activeChat.id);
+      } catch (innerError) {
+        console.error('Database operation failed:', innerError);
+        throw innerError; // Re-throw to be caught by the outer try-catch
       }
-      
-      console.log("Message inserted successfully:", data);
-      
-      // Refresh the messages to include the newly sent message
-      fetchMessages(activeChat.id);
     } catch (error) {
       console.error('Error sending message:', error);
       toast({
         title: "Error",
-        description: "Failed to send message. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to send message. Please try again.",
         variant: "destructive"
       });
     } finally {

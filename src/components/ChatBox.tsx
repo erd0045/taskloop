@@ -63,13 +63,16 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         // Ensure the filePreview is properly structured before sending
         let attachmentToSend = undefined;
         if (filePreview) {
+          // Create a clean attachment object to prevent circular references
           attachmentToSend = {
-            id: filePreview.id,
-            name: filePreview.name,
-            type: filePreview.type,
-            url: filePreview.url,
-            size: filePreview.size
+            id: filePreview.id || `file-${Date.now()}`,
+            name: filePreview.name || 'unnamed file',
+            type: filePreview.type || 'application/octet-stream',
+            url: filePreview.url || '',
+            size: filePreview.size || 0
           };
+          
+          console.log("Prepared attachment for sending:", JSON.stringify(attachmentToSend));
         }
         
         // Send the actual message
@@ -82,9 +85,11 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         setFilePreview(null);
       } catch (error) {
         console.error("Error sending message:", error);
+        // Show the actual error message if available
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
         toast({
           title: "Error sending message",
-          description: "Your message could not be sent. Please try again.",
+          description: `Your message could not be sent: ${errorMessage}`,
           variant: "destructive"
         });
       }
