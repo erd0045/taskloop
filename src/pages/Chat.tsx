@@ -325,8 +325,8 @@ const Chat = () => {
 
         console.log("Message inserted successfully:", data);
 
-        // Refresh the messages to include the newly sent message
-        fetchMessages(activeChat.id);
+        // Only refresh the chats list to update last message
+        // The new message will be added via real-time subscription in ChatBox
       } catch (innerError) {
         console.error('Database operation failed:', innerError);
         throw innerError; // Re-throw to be caught by the outer try-catch

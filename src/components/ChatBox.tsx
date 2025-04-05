@@ -418,7 +418,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
               >
                 {message.content && <p>{message.content}</p>}
 
-                {message.attachment && (
+                {message.attachment && message.attachment.url && (
                   <div 
                     className="cursor-pointer" 
                     onClick={() => {
