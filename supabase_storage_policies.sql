@@ -53,10 +53,6 @@ ON CONFLICT (id) DO UPDATE SET
   file_size_limit = 52428800,
   allowed_mime_types = ARRAY['image/*', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'application/zip'];
 
--- Clear any existing policies that might conflict
-DELETE FROM storage.policies 
-WHERE bucket_id IN ('chat_attachments', 'user-content');
-
 -- Create policies for chat_attachments bucket
 -- Allow ANY authenticated user to insert files
 CREATE POLICY "Allow authenticated users to upload to chat_attachments"
