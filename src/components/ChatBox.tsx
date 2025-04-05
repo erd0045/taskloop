@@ -98,52 +98,80 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
       
       console.log("Attempting to upload file to chat_attachments bucket:", filePath);
       
-      // Try to use a completely new approach with a cleaner upload
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('chat_attachments')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: true  // Use upsert to replace if file exists
-        });
+      // Try using the RLS authenticated client to upload
+      console.log('Attempting upload with RLS authenticated client');
       
-      if (uploadError) {
-        console.error('Upload error:', uploadError);
-        
-        // Check if the error is specifically about bucket not found
-        if (uploadError.message && uploadError.message.includes('bucket') && uploadError.message.includes('not found')) {
-          // Try a fallback to user-content bucket which seems to exist based on other code
-          console.log("Attempting fallback upload to user-content bucket");
+      // For security, ensure the path includes user ID to isolate user files
+      const secureFilePath = `${user?.id}/${fileName}`;
+      
+      // First try using user-content bucket which is more likely to be properly configured
+      console.log("Attempting upload to user-content bucket");
+      const fallbackPath = `chat_files/${user?.id}/${fileName}`;
+      
+      try {
+        const { data: fallbackData, error: fallbackError } = await supabase.storage
+          .from('user-content')
+          .upload(fallbackPath, file, {
+            cacheControl: '3600',
+            upsert: true
+          });
           
-          const fallbackPath = `chat_files/${user?.id}/${fileName}`;
-          const { data: fallbackData, error: fallbackError } = await supabase.storage
-            .from('user-content')
-            .upload(fallbackPath, file, {
+        if (fallbackError) {
+          console.error('user-content upload failed:', fallbackError);
+          
+          // If the error is a policy violation, it's likely a permissions issue
+          if (fallbackError.message && fallbackError.message.includes('policy')) {
+            throw new Error(`Upload failed due to permissions: ${fallbackError.message}. Please contact administrator.`);
+          }
+          
+          // Try chat_attachments as a last resort
+          console.log("Falling back to chat_attachments bucket");
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('chat_attachments')
+            .upload(secureFilePath, file, {
               cacheControl: '3600',
               upsert: true
             });
             
-          if (fallbackError) {
-            console.error('Fallback upload failed:', fallbackError);
-            throw new Error(`Upload failed: ${fallbackError.message}`);
+          if (uploadError) {
+            console.error('chat_attachments upload failed:', uploadError);
+            throw new Error(`Upload failed: ${uploadError.message}`);
           }
           
-          // Get public URL for fallback
-          const { data: fallbackUrlData } = supabase.storage
-            .from('user-content')
-            .getPublicUrl(fallbackPath);
+          // Get URL from chat_attachments bucket
+          const { data: publicUrlData } = supabase.storage
+            .from('chat_attachments')
+            .getPublicUrl(secureFilePath);
             
-          if (!fallbackUrlData || !fallbackUrlData.publicUrl) {
+          if (!publicUrlData || !publicUrlData.publicUrl) {
             throw new Error("Failed to get public URL");
           }
           
-          // Use the fallback URL
           return {
-            data: fallbackPath,
-            publicUrl: fallbackUrlData.publicUrl
+            data: secureFilePath,
+            publicUrl: publicUrlData.publicUrl
           };
         }
         
-        throw uploadError;
+        // Successfully uploaded to user-content
+        const { data: fallbackUrlData } = supabase.storage
+          .from('user-content')
+          .getPublicUrl(fallbackPath);
+          
+        if (!fallbackUrlData || !fallbackUrlData.publicUrl) {
+          throw new Error("Failed to get public URL");
+        }
+        
+        return {
+          data: fallbackPath,
+          publicUrl: fallbackUrlData.publicUrl
+        };
+      } catch (error: any) {
+        console.error('All upload attempts failed:', error);
+        if (error.message && error.message.includes('policy')) {
+          throw new Error('Upload failed due to security policy. Your user account may not have permission to upload files.');
+        }
+        throw error;
       }
       
       // Get public URL from the successfully uploaded bucket
