@@ -36,7 +36,11 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
   // Update local messages when props messages change
   useEffect(() => {
     setLocalMessages(messages);
-    // Scroll to bottom whenever messages update - Removed automatic scrolling on every update
+    
+    // Scroll to bottom when messages are loaded or chat changes
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
   }, [messages]);
 
   const handleSendMessage = async (e: React.FormEvent) => {

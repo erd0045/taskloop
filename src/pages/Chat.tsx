@@ -270,6 +270,15 @@ const Chat = () => {
   const handleChatSelect = (chat: ChatType) => {
     setActiveChat(chat);
     fetchMessages(chat.id);
+    
+    // Update the chats list to remove the unread indicator for this chat
+    setChats(prevChats => 
+      prevChats.map(c => 
+        c.id === chat.id 
+          ? { ...c, unreadCount: 0 } 
+          : c
+      )
+    );
   };
 
   const handleSendMessage = async (content: string, attachment?: FileAttachment) => {

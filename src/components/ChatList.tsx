@@ -23,9 +23,20 @@ const ChatList = ({
 }: ChatListProps) => {
   const [searchQuery, setSearchQuery] = useState('');
   
-  const filteredChats = chats.filter((chat) => 
-    chat.participantName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Sort chats by last message time (most recent first) and filter by search
+  const filteredChats = chats
+    .sort((a, b) => {
+      // If no last message time for either, keep original order
+      if (!a.lastMessageTime && !b.lastMessageTime) return 0;
+      // If only one has last message time, it goes first
+      if (!a.lastMessageTime) return 1;
+      if (!b.lastMessageTime) return -1;
+      // Sort by most recent
+      return b.lastMessageTime.getTime() - a.lastMessageTime.getTime();
+    })
+    .filter((chat) => 
+      chat.participantName.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
   return (
     <div className="h-full flex flex-col">
@@ -54,9 +65,12 @@ const ChatList = ({
             {filteredChats.map(chat => (
               <li 
                 key={chat.id} 
-                className={`border-b p-4 hover:bg-accent/50 cursor-pointer ${activeChat?.id === chat.id ? 'bg-accent' : ''}`} 
+                className={`border-b p-4 hover:bg-accent/50 cursor-pointer relative ${activeChat?.id === chat.id ? 'bg-accent' : ''}`} 
                 onClick={() => onChatSelect(chat)}
               >
+                {chat.unreadCount > 0 && (
+                  <span className="absolute top-2 right-2 h-3 w-3 rounded-full bg-red-500 animate-pulse" />
+                )}
                 <div className="flex items-start gap-3">
                   <Avatar>
                     {chat.participantImage ? <AvatarImage src={chat.participantImage} alt={chat.participantName} /> : null}

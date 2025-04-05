@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Search, Trophy, Home, User, Menu, MessageSquare, Calendar, FileText, LogOut } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -25,6 +24,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { supabase } from '@/integrations/supabase/client'; // Added Supabase client
+
 
 interface NavbarProps {
   onSearch?: (term: string) => void;
@@ -38,6 +39,7 @@ const Navbar = ({ onSearch }: NavbarProps) => {
   const isLandingPage = location.pathname === '/';
   const [searchTerm, setSearchTerm] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [hasUnreadMessages, setHasUnreadMessages] = useState(false); // Added state for unread messages
 
   const isAuthenticated = !!user;
 
@@ -87,7 +89,7 @@ const Navbar = ({ onSearch }: NavbarProps) => {
         </>
       );
     }
-    
+
     return (
       <>
         <NavigationMenuItem>
@@ -96,28 +98,31 @@ const Navbar = ({ onSearch }: NavbarProps) => {
             Home
           </Link>
         </NavigationMenuItem>
-        
+
         <NavigationMenuItem>
           <Link to="/task" className={navigationMenuTriggerStyle()}>
             <FileText className="mr-2 h-4 w-4" />
             Task
           </Link>
         </NavigationMenuItem>
-        
+
         <NavigationMenuItem>
           <Link to="/chat" className={navigationMenuTriggerStyle()}>
             <MessageSquare className="mr-2 h-4 w-4" />
             Chat
+            {hasUnreadMessages && (
+              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+            )} {/* Added notification dot */}
           </Link>
         </NavigationMenuItem>
-        
+
         <NavigationMenuItem>
           <Link to="/history" className={navigationMenuTriggerStyle()}>
             <Calendar className="mr-2 h-4 w-4" />
             History
           </Link>
         </NavigationMenuItem>
-        
+
         <NavigationMenuItem>
           <Link to="/leaderboard" className={navigationMenuTriggerStyle()}>
             <Trophy className="mr-2 h-4 w-4" />
@@ -128,13 +133,47 @@ const Navbar = ({ onSearch }: NavbarProps) => {
     );
   };
 
+  useEffect(() => {
+    if (!user) return;
+
+    const checkUnreadMessages = async () => {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact' })
+        .eq('receiver_id', user.id)
+        .eq('read', false);
+
+      if (!error && data) {
+        setHasUnreadMessages(data.count > 0);
+      }
+    };
+
+    checkUnreadMessages();
+
+    // Subscribe to new messages (this part requires a Supabase setup with a channel)
+    const channel = supabase
+      .channel('new_messages')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `receiver_id=eq.${user.id}`,
+      }, () => {
+        setHasUnreadMessages(true);
+      })
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [user]);
+
+
   return (
     <nav className="border-b bg-background sticky top-0 z-50">
       <div className="container mx-auto px-4 py-3 flex items-center">
         <Link to={isAuthenticated ? "/home" : "/"} className="text-xl font-bold mr-6">
           Task Loop
         </Link>
-        
+
         {isHomePage && (
           <div className="relative mx-4 flex-1 max-w-sm">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -146,7 +185,7 @@ const Navbar = ({ onSearch }: NavbarProps) => {
             />
           </div>
         )}
-        
+
         {/* Desktop Navigation Menu */}
         <div className="hidden md:flex ml-auto items-center">
           <NavigationMenu>
@@ -154,7 +193,7 @@ const Navbar = ({ onSearch }: NavbarProps) => {
               <MainNavLinks />
             </NavigationMenuList>
           </NavigationMenu>
-          
+
           <div className="ml-4">
             {!isAuthenticated ? (
               <Button onClick={handleLoginClick} variant="outline">
@@ -184,7 +223,7 @@ const Navbar = ({ onSearch }: NavbarProps) => {
             )}
           </div>
         </div>
-        
+
         {/* Mobile Menu */}
         <div className="md:hidden ml-auto flex items-center gap-2">
           {isAuthenticated ? (
@@ -207,7 +246,7 @@ const Navbar = ({ onSearch }: NavbarProps) => {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
-          
+
           <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
             <SheetTrigger asChild>
               <Button variant="outline" size="icon">
@@ -218,15 +257,15 @@ const Navbar = ({ onSearch }: NavbarProps) => {
               <div className="flex flex-col gap-4 mt-6">
                 {!isAuthenticated ? (
                   <>
-                    <Link 
-                      to="/leaderboard" 
+                    <Link
+                      to="/leaderboard"
                       className="flex items-center gap-2 px-2 py-2 hover:bg-muted rounded-md"
                       onClick={() => setIsMobileMenuOpen(false)}
                     >
                       <Trophy className="h-5 w-5" />
                       Leaderboard
                     </Link>
-                    <Button 
+                    <Button
                       onClick={() => {
                         handleLoginClick();
                         setIsMobileMenuOpen(false);
@@ -238,61 +277,64 @@ const Navbar = ({ onSearch }: NavbarProps) => {
                   </>
                 ) : (
                   <>
-                    <Link 
-                      to="/home" 
+                    <Link
+                      to="/home"
                       className="flex items-center gap-2 px-2 py-2 hover:bg-muted rounded-md"
                       onClick={() => setIsMobileMenuOpen(false)}
                     >
                       <Home className="h-5 w-5" />
                       Home
                     </Link>
-                    
-                    <Link 
-                      to="/task" 
+
+                    <Link
+                      to="/task"
                       className="flex items-center gap-2 px-2 py-2 hover:bg-muted rounded-md"
                       onClick={() => setIsMobileMenuOpen(false)}
                     >
                       <FileText className="h-5 w-5" />
                       Task
                     </Link>
-                    
-                    <Link 
-                      to="/chat" 
-                      className="flex items-center gap-2 px-2 py-2 hover:bg-muted rounded-md"
+
+                    <Link
+                      to="/chat"
+                      className="flex items-center gap-2 px-2 py-2 relative hover:bg-muted rounded-md"
                       onClick={() => setIsMobileMenuOpen(false)}
                     >
                       <MessageSquare className="h-5 w-5" />
                       Chat
+                      {hasUnreadMessages && (
+                        <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                      )}
                     </Link>
-                    
-                    <Link 
-                      to="/history" 
+
+                    <Link
+                      to="/history"
                       className="flex items-center gap-2 px-2 py-2 hover:bg-muted rounded-md"
                       onClick={() => setIsMobileMenuOpen(false)}
                     >
                       <Calendar className="h-5 w-5" />
                       History
                     </Link>
-                    
-                    <Link 
-                      to="/leaderboard" 
+
+                    <Link
+                      to="/leaderboard"
                       className="flex items-center gap-2 px-2 py-2 hover:bg-muted rounded-md"
                       onClick={() => setIsMobileMenuOpen(false)}
                     >
                       <Trophy className="h-5 w-5" />
                       Leaderboard
                     </Link>
-                    
-                    <Link 
-                      to="/profile" 
+
+                    <Link
+                      to="/profile"
                       className="flex items-center gap-2 px-2 py-2 hover:bg-muted rounded-md"
                       onClick={() => setIsMobileMenuOpen(false)}
                     >
                       <User className="h-5 w-5" />
                       Profile
                     </Link>
-                    
-                    <Button 
+
+                    <Button
                       onClick={() => {
                         handleSignOut();
                         setIsMobileMenuOpen(false);
