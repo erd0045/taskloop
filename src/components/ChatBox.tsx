@@ -98,27 +98,24 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
       
       console.log("Attempting to upload file to chat_attachments bucket:", filePath);
       
-      // Check if bucket exists before uploading
-      const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
+      // Skip bucket verification and directly attempt upload
+      // This is because the bucket might exist but the listBuckets API 
+      // might have permission issues or other constraints
       
-      if (bucketsError) {
-        console.error('Error listing buckets:', bucketsError);
-        throw new Error('Unable to access storage buckets');
-      }
-      
-      const chatAttachmentsBucketExists = buckets.some(bucket => bucket.name === 'chat_attachments');
-      
-      if (!chatAttachmentsBucketExists) {
-        console.error('chat_attachments bucket not found');
-        throw new Error('Storage bucket not found. Please contact administrator.');
-      }
-      
+      // Upload file directly
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('chat_attachments')
-        .upload(filePath, file);
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
         
       if (uploadError) {
         console.error('Upload error:', uploadError);
+        // If the error is related to bucket not found, provide a clearer error message
+        if (uploadError.message && uploadError.message.includes('bucket') && uploadError.message.includes('not found')) {
+          throw new Error('Storage bucket not found. Please contact administrator.');
+        }
         throw uploadError;
       }
       
