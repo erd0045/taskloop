@@ -535,27 +535,33 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
             {previewFile && (
               <>
                 {previewFile.type.startsWith('image/') ? (
-                  <img 
-                    src={previewFile.url} 
-                    alt={previewFile.name}
-                    className="max-h-[500px] max-w-full object-contain rounded-md"
-                  />
-                ) : (
-                  <div className="p-8 bg-muted rounded-md">
-                    <FileAttachmentDisplay file={previewFile} />
-                  </div>
-                )}
-                <div className="flex justify-center w-full">
                   <a 
                     href={previewFile.url} 
                     download={previewFile.name}
                     target="_blank"
                     rel="noreferrer"
-                    className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md"
                   >
-                    Download File
+                    <img 
+                      src={previewFile.url} 
+                      alt={previewFile.name}
+                      className="max-h-[500px] max-w-full object-contain rounded-md cursor-pointer hover:opacity-90"
+                      title="Click to download"
+                    />
                   </a>
-                </div>
+                ) : (
+                  <a 
+                    href={previewFile.url} 
+                    download={previewFile.name}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="cursor-pointer"
+                  >
+                    <div className="p-8 bg-muted rounded-md hover:bg-muted/80">
+                      <FileAttachmentDisplay file={previewFile} />
+                      <p className="text-center text-sm mt-2 text-muted-foreground">Click to download</p>
+                    </div>
+                  </a>
+                )}
               </>
             )}
           </div>

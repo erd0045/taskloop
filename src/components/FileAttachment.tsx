@@ -44,7 +44,13 @@ const FileAttachmentDisplay: React.FC<FileAttachmentProps> = ({
   if (file.type.startsWith('image/') && !isPreview) {
     return (
       <div className="relative mt-2 max-w-[200px]">
-        <img src={file.url} alt={file.name} className="rounded-md max-w-full" />
+        <img 
+          src={file.url} 
+          alt={file.name} 
+          className="rounded-md max-w-full hover:opacity-90" 
+          title="Click to view/download"
+          onClick={onClick}
+        />
         <div className="text-xs text-gray-500 mt-1">{file.name} ({formatFileSize(file.size)})</div>
       </div>
     );
