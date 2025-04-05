@@ -98,31 +98,58 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
       
       console.log("Attempting to upload file to chat_attachments bucket:", filePath);
       
-      // Skip bucket verification and directly attempt upload
-      // This is because the bucket might exist but the listBuckets API 
-      // might have permission issues or other constraints
-      
-      // Upload file directly
+      // Try to use a completely new approach with a cleaner upload
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('chat_attachments')
         .upload(filePath, file, {
           cacheControl: '3600',
-          upsert: false
+          upsert: true  // Use upsert to replace if file exists
         });
-        
+      
       if (uploadError) {
         console.error('Upload error:', uploadError);
-        // If the error is related to bucket not found, provide a clearer error message
+        
+        // Check if the error is specifically about bucket not found
         if (uploadError.message && uploadError.message.includes('bucket') && uploadError.message.includes('not found')) {
-          throw new Error('Storage bucket not found. Please contact administrator.');
+          // Try a fallback to user-content bucket which seems to exist based on other code
+          console.log("Attempting fallback upload to user-content bucket");
+          
+          const fallbackPath = `chat_files/${user?.id}/${fileName}`;
+          const { data: fallbackData, error: fallbackError } = await supabase.storage
+            .from('user-content')
+            .upload(fallbackPath, file, {
+              cacheControl: '3600',
+              upsert: true
+            });
+            
+          if (fallbackError) {
+            console.error('Fallback upload failed:', fallbackError);
+            throw new Error(`Upload failed: ${fallbackError.message}`);
+          }
+          
+          // Get public URL for fallback
+          const { data: fallbackUrlData } = supabase.storage
+            .from('user-content')
+            .getPublicUrl(fallbackPath);
+            
+          if (!fallbackUrlData || !fallbackUrlData.publicUrl) {
+            throw new Error("Failed to get public URL");
+          }
+          
+          // Use the fallback URL
+          return {
+            data: fallbackPath,
+            publicUrl: fallbackUrlData.publicUrl
+          };
         }
+        
         throw uploadError;
       }
       
-      // Get public URL
-      const { data: publicUrlData } = supabase.storage
-        .from('chat_attachments')
-        .getPublicUrl(filePath);
+      // Get public URL from the successfully uploaded bucket
+      const { data: publicUrlData } = uploadData 
+        ? supabase.storage.from('chat_attachments').getPublicUrl(filePath)
+        : null;
         
       if (!publicUrlData || !publicUrlData.publicUrl) {
         throw new Error("Failed to get public URL");
