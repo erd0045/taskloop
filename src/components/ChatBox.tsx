@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface ChatBoxProps {
   chat: ChatType;
@@ -28,14 +29,14 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
   const { toast } = useToast();
+  const [openPreviewDialog, setOpenPreviewDialog] = useState(false);
+  const [previewFile, setPreviewFile] = useState<FileAttachment | null>(null);
+
 
   // Update local messages when props messages change
   useEffect(() => {
     setLocalMessages(messages);
-    // Scroll to bottom whenever messages update
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
+    // Scroll to bottom whenever messages update - Removed automatic scrolling on every update
   }, [messages]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -71,15 +72,15 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
             url: filePreview.url || '',
             size: filePreview.size || 0
           };
-          
+
           console.log("Prepared attachment for sending:", JSON.stringify(attachmentToSend));
         }
-        
+
         // Send the actual message
         await onSendMessage(newMessage, attachmentToSend);
-        
+
         console.log("Message sent successfully with attachment:", attachmentToSend);
-        
+
         // Reset form state
         setNewMessage('');
         setFilePreview(null);
@@ -122,16 +123,16 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
       // Create unique filename to avoid collisions
       const fileExt = file.name.split('.').pop();
       const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
-      
+
       // Create a folder with the user's ID to organize files by user
       const filePath = `${user.id}/${fileName}`;
-      
+
       console.log("Attempting to upload file:", filePath);
-      
+
       // Try both storage buckets in sequence
       let fileUrl: string | null = null;
       let uploadSuccess = false;
-      
+
       // First try chat_attachments bucket
       try {
         const { data: chatAttachData, error: chatAttachError } = await supabase.storage
@@ -140,13 +141,13 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
             cacheControl: '3600',
             upsert: true
           });
-          
+
         if (!chatAttachError) {
           // Get the public URL
           const { data: publicUrlData } = await supabase.storage
             .from('chat_attachments')
             .getPublicUrl(filePath);
-            
+
           fileUrl = publicUrlData.publicUrl;
           uploadSuccess = true;
           console.log('File uploaded successfully to chat_attachments bucket');
@@ -156,25 +157,25 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
       } catch (err) {
         console.error('Error with chat_attachments bucket:', err);
       }
-      
+
       // If chat_attachments failed, try user-content bucket
       if (!uploadSuccess) {
         try {
           const userContentPath = `chat_files/${user.id}/${fileName}`;
-          
+
           const { data: userContentData, error: userContentError } = await supabase.storage
             .from('user-content')
             .upload(userContentPath, file, {
               cacheControl: '3600',
               upsert: true
             });
-            
+
           if (!userContentError) {
             // Get the public URL
             const { data: publicUrlData } = await supabase.storage
               .from('user-content')
               .getPublicUrl(userContentPath);
-              
+
             fileUrl = publicUrlData.publicUrl;
             uploadSuccess = true;
             console.log('File uploaded successfully to user-content bucket');
@@ -187,7 +188,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
           throw err;
         }
       }
-      
+
       if (!uploadSuccess || !fileUrl) {
         throw new Error('Failed to upload file to any storage bucket');
       }
@@ -202,16 +203,16 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
       };
 
       console.log("File attachment created:", attachment);
-      
+
       // Make sure attachment object is fully serializable
       const safeAttachment = JSON.parse(JSON.stringify(attachment));
       setFilePreview(safeAttachment);
-      
+
       // Clear the file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-      
+
     } catch (error: any) {
       console.error('Error uploading file:', error);
       let errorMessage = "Something went wrong while uploading the file";
@@ -248,10 +249,10 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
       try {
         const url = new URL(filePreview.url);
         const pathParts = url.pathname.split('/');
-        
+
         // Determine bucket name from URL
         const bucketName = url.pathname.includes('chat_attachments') ? 'chat_attachments' : 'user-content';
-        
+
         // Find the start of the actual path within the bucket
         let bucketIndex = -1;
         if (bucketName === 'chat_attachments') {
@@ -259,11 +260,11 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         } else {
           bucketIndex = pathParts.findIndex(part => part === 'user-content') + 1;
         }
-        
+
         if (bucketIndex > 0) {
           const filePath = pathParts.slice(bucketIndex).join('/');
           console.log(`Attempting to remove file from ${bucketName}:`, filePath);
-          
+
           // Delete the file from storage
           supabase.storage
             .from(bucketName)
@@ -309,9 +310,6 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
     markMessagesAsRead();
   }, [localMessages, user, chat.id]);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [localMessages]);
 
   // Set up real-time message subscription
   useEffect(() => {
@@ -421,7 +419,15 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
                 {message.content && <p>{message.content}</p>}
 
                 {message.attachment && (
-                  <FileAttachmentDisplay file={message.attachment} />
+                  <div 
+                    className="cursor-pointer" 
+                    onClick={() => {
+                      setPreviewFile(message.attachment || null);
+                      setOpenPreviewDialog(true);
+                    }}
+                  >
+                    <FileAttachmentDisplay file={message.attachment} />
+                  </div>
                 )}
 
                 <div
@@ -518,6 +524,43 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
           </Button>
         </div>
       </form>
+
+      {/* File Preview Dialog */}
+      <Dialog open={openPreviewDialog} onOpenChange={setOpenPreviewDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{previewFile?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center justify-center space-y-4 p-4">
+            {previewFile && (
+              <>
+                {previewFile.type.startsWith('image/') ? (
+                  <img 
+                    src={previewFile.url} 
+                    alt={previewFile.name}
+                    className="max-h-[500px] max-w-full object-contain rounded-md"
+                  />
+                ) : (
+                  <div className="p-8 bg-muted rounded-md">
+                    <FileAttachmentDisplay file={previewFile} />
+                  </div>
+                )}
+                <div className="flex justify-center w-full">
+                  <a 
+                    href={previewFile.url} 
+                    download={previewFile.name}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md"
+                  >
+                    Download File
+                  </a>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

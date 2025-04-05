@@ -25,61 +25,61 @@ const Chat = () => {
     const fetchChats = async () => {
       try {
         if (!user) return;
-        
+
         setIsLoading(true);
-        
+
         const { data: chatsData, error: chatsError } = await extendedSupabase
           .from('chats')
           .select('*')
           .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
           .order('created_at', { ascending: false });
-          
+
         if (chatsError) {
           console.error('Error fetching chats:', chatsError);
           throw chatsError;
         }
-        
+
         const processedChats: ChatType[] = await Promise.all(
           (chatsData || []).map(async (chat) => {
             const isUser1 = chat.user1_id === user.id;
             const participantId = isUser1 ? chat.user2_id : chat.user1_id;
-            
+
             const { data: participantData, error: participantError } = await supabase
               .from('profiles')
               .select('username')
               .eq('id', participantId)
               .single();
-              
+
             if (participantError) {
               console.error('Error fetching participant data:', participantError);
             }
-            
+
             const participantName = participantData?.username || 'Unknown User';
-            
+
             const { data: lastMessageData, error: lastMessageError } = await supabase
               .from('messages')
               .select('content, timestamp, read')
               .eq('chat_id', chat.id)
               .order('timestamp', { ascending: false })
               .limit(1);
-              
+
             if (lastMessageError) {
               console.error('Error fetching last message:', lastMessageError);
             }
-            
+
             const { data: unreadCountData, error: unreadCountError } = await supabase
               .from('messages')
               .select('id', { count: 'exact' })
               .eq('chat_id', chat.id)
               .eq('receiver_id', user.id)
               .eq('read', false);
-              
+
             if (unreadCountError) {
               console.error('Error counting unread messages:', unreadCountError);
             }
-            
+
             const unreadCount = unreadCountData?.length || 0;
-            
+
             return {
               id: chat.id,
               participantId,
@@ -90,14 +90,14 @@ const Chat = () => {
             };
           })
         );
-        
+
         setChats(processedChats);
-        
+
         if (location.state && location.state.activeChatId) {
           const chatFromState = processedChats.find(
             chat => chat.id === location.state.activeChatId
           );
-          
+
           if (chatFromState) {
             setActiveChat(chatFromState);
             fetchMessages(chatFromState.id);
@@ -117,9 +117,9 @@ const Chat = () => {
         setIsLoading(false);
       }
     };
-    
+
     fetchChats();
-    
+
     const chatChannel = supabase
       .channel('public:chats')
       .on('postgres_changes', 
@@ -145,7 +145,7 @@ const Chat = () => {
         }
       )
       .subscribe();
-      
+
     const messageChannel = supabase
       .channel('public:messages')
       .on('postgres_changes', 
@@ -155,42 +155,42 @@ const Chat = () => {
           table: 'messages'
         }, 
         (payload) => {
-          if (activeChat && payload.new.chat_id === activeChat.id) {
-            fetchMessages(activeChat.id);
-          }
-          
+          // Only fetch chats list (avoid refreshing the entire message list)
           fetchChats();
+
+          // If we're in the active chat where a new message arrived,
+          // the ChatBox component will handle showing it via its own subscription
         }
       )
       .subscribe();
-      
+
     return () => {
       supabase.removeChannel(chatChannel);
       supabase.removeChannel(messageChannel);
     };
   }, [user, toast, location]);
-  
+
   const fetchMessages = async (chatId: string) => {
     try {
       if (!user) return;
-      
+
       const { data: messagesData, error } = await supabase
         .from('messages')
         .select('*')
         .eq('chat_id', chatId)
         .order('timestamp', { ascending: true });
-        
+
       if (error) throw error;
-      
+
       const messagePromises = (messagesData || []).map(async (message: any) => {
         const { data: senderData } = await supabase
           .from('profiles')
           .select('username')
           .eq('id', message.sender_id)
           .single();
-        
+
         let attachment: FileAttachment | undefined = undefined;
-        
+
         if (message.attachment || message.attachment_url) {
           try {
             // Try to parse the attachment if it's a JSON string
@@ -198,7 +198,7 @@ const Chat = () => {
               const parsedAttachment = typeof message.attachment === 'string' 
                 ? JSON.parse(message.attachment) 
                 : message.attachment;
-                
+
               attachment = {
                 id: parsedAttachment.id || `file-${Date.now()}`,
                 name: parsedAttachment.name || message.attachment_name || 'file',
@@ -231,7 +231,7 @@ const Chat = () => {
             }
           }
         }
-        
+
         return {
           id: message.id,
           senderId: message.sender_id,
@@ -243,14 +243,14 @@ const Chat = () => {
           attachment: attachment
         };
       });
-      
+
       const formattedMessages = await Promise.all(messagePromises);
       setMessages(formattedMessages);
-      
+
       const unreadMessages = messagesData
         .filter(msg => !msg.read && msg.sender_id !== user.id)
         .map(msg => msg.id);
-        
+
       if (unreadMessages.length > 0) {
         await supabase
           .from('messages')
@@ -266,18 +266,18 @@ const Chat = () => {
       });
     }
   };
-  
+
   const handleChatSelect = (chat: ChatType) => {
     setActiveChat(chat);
     fetchMessages(chat.id);
   };
-  
+
   const handleSendMessage = async (content: string, attachment?: FileAttachment) => {
     try {
       if (!user || !activeChat) return;
-      
+
       setIsSending(true);
-      
+
       const newMessage: any = {
         chat_id: activeChat.id,
         sender_id: user.id,
@@ -285,7 +285,7 @@ const Chat = () => {
         content: content,
         read: false,
       };
-      
+
       if (attachment) {
         try {
           // Store attachment as a clean object to avoid JSON parsing issues
@@ -296,7 +296,7 @@ const Chat = () => {
             url: attachment.url,
             size: attachment.size
           };
-          
+
           // Store the clean attachment object directly (Supabase will handle JSONB conversion)
           newMessage.attachment = cleanAttachment;
           // Also store fields separately for easier querying
@@ -304,27 +304,27 @@ const Chat = () => {
           newMessage.attachment_type = cleanAttachment.type;
           newMessage.attachment_url = cleanAttachment.url;
           newMessage.attachment_size = cleanAttachment.size;
-          
+
           console.log("Sending message with attachment:", JSON.stringify(newMessage));
         } catch (err) {
           console.error("Error preparing attachment:", err);
           throw new Error("Failed to prepare attachment data");
         }
       }
-      
+
       try {
         const { data, error } = await supabase
           .from('messages')
           .insert(newMessage)
           .select();
-        
+
       if (error) {
           console.error('Error details:', error);
           throw new Error(`Database error: ${error.message}`);
         }
-        
+
         console.log("Message inserted successfully:", data);
-        
+
         // Refresh the messages to include the newly sent message
         fetchMessages(activeChat.id);
       } catch (innerError) {
@@ -342,7 +342,7 @@ const Chat = () => {
       setIsSending(false);
     }
   };
-  
+
   const handleUserAdded = (chatId: string, userId: string, username: string) => {
     const newChat: ChatType = {
       id: chatId,
@@ -350,12 +350,12 @@ const Chat = () => {
       participantName: username,
       unreadCount: 0
     };
-    
+
     setChats(prevChats => [newChat, ...prevChats]);
     setActiveChat(newChat);
     fetchMessages(chatId);
   };
-  
+
   return (
     <Layout requireAuth>
       <div className="container mx-auto px-4 py-8">
@@ -369,7 +369,7 @@ const Chat = () => {
               searchBarRight={<AddUserToChat onUserAdded={handleUserAdded} />}
             />
           </div>
-          
+
           <div className="w-2/3">
             {activeChat ? (
               <ChatBox 

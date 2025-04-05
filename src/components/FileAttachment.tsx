@@ -8,12 +8,14 @@ interface FileAttachmentProps {
   file: FileAttachment;
   isPreview?: boolean;
   onRemove?: () => void;
+  onClick?: () => void;
 }
 
 const FileAttachmentDisplay: React.FC<FileAttachmentProps> = ({
   file,
   isPreview = false,
   onRemove,
+  onClick,
 }) => {
   const getFileIcon = () => {
     const fileType = file.type.split('/')[0];
