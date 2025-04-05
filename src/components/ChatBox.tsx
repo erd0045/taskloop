@@ -59,12 +59,35 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         setLocalMessages(prevMessages => [...prevMessages, optimisticMessage]);
       }
 
-      // Send the actual message
-      await onSendMessage(newMessage, filePreview || undefined);
-
-      // Reset form state
-      setNewMessage('');
-      setFilePreview(null);
+      try {
+        // Ensure the filePreview is properly structured before sending
+        let attachmentToSend = undefined;
+        if (filePreview) {
+          attachmentToSend = {
+            id: filePreview.id,
+            name: filePreview.name,
+            type: filePreview.type,
+            url: filePreview.url,
+            size: filePreview.size
+          };
+        }
+        
+        // Send the actual message
+        await onSendMessage(newMessage, attachmentToSend);
+        
+        console.log("Message sent successfully with attachment:", attachmentToSend);
+        
+        // Reset form state
+        setNewMessage('');
+        setFilePreview(null);
+      } catch (error) {
+        console.error("Error sending message:", error);
+        toast({
+          title: "Error sending message",
+          description: "Your message could not be sent. Please try again.",
+          variant: "destructive"
+        });
+      }
 
       // Scroll to bottom after sending
       setTimeout(() => {
@@ -174,7 +197,10 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
       };
 
       console.log("File attachment created:", attachment);
-      setFilePreview(attachment);
+      
+      // Make sure attachment object is fully serializable
+      const safeAttachment = JSON.parse(JSON.stringify(attachment));
+      setFilePreview(safeAttachment);
       
       // Clear the file input
       if (fileInputRef.current) {

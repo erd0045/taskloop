@@ -287,21 +287,28 @@ const Chat = () => {
       };
       
       if (attachment) {
-        newMessage.attachment = attachment;
+        // Store attachment as a JSON string to ensure proper serialization
+        newMessage.attachment = JSON.stringify(attachment);
+        // Also store fields separately for backward compatibility
         newMessage.attachment_name = attachment.name;
         newMessage.attachment_type = attachment.type;
         newMessage.attachment_url = attachment.url;
         newMessage.attachment_size = attachment.size;
+        
+        console.log("Sending message with attachment:", newMessage);
       }
       
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('messages')
-        .insert(newMessage);
+        .insert(newMessage)
+        .select();
         
       if (error) {
         console.error('Error details:', error);
         throw error;
       }
+      
+      console.log("Message inserted successfully:", data);
       
       // Refresh the messages to include the newly sent message
       fetchMessages(activeChat.id);
