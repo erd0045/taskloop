@@ -75,7 +75,7 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !user) return;
 
     // Check file size (max 5MB)
     const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -94,78 +94,77 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
       // Create unique filename to avoid collisions
       const fileExt = file.name.split('.').pop();
       const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
-      const filePath = `${user?.id}/${fileName}`;
-
-      console.log("Attempting to upload file to chat_attachments bucket:", filePath);
-
-      // Try using the RLS authenticated client to upload
-      console.log('Attempting upload with RLS authenticated client');
-
-      // For security, ensure the path includes user ID to isolate user files
-      const secureFilePath = `${user?.id}/${fileName}`;
-
-      // First try using user-content bucket which is more likely to be properly configured
-      console.log("Attempting upload to user-content bucket");
-      const fallbackPath = `chat_files/${user?.id}/${fileName}`;
-
-      let uploadBucket: string;
-      let fileUrl: string;
-
+      
+      // Create a folder with the user's ID to organize files by user
+      const filePath = `${user.id}/${fileName}`;
+      
+      console.log("Attempting to upload file:", filePath);
+      
+      // Try both storage buckets in sequence
+      let fileUrl: string | null = null;
+      let uploadSuccess = false;
+      
+      // First try chat_attachments bucket
       try {
-        const { data: fallbackData, error: fallbackError } = await supabase.storage
-          .from('user-content')
-          .upload(fallbackPath, file, {
+        const { data: chatAttachData, error: chatAttachError } = await supabase.storage
+          .from('chat_attachments')
+          .upload(filePath, file, {
             cacheControl: '3600',
             upsert: true
           });
-
-        if (fallbackError) {
-          console.error('user-content upload failed:', fallbackError);
-
-          // If the error is a policy violation, it's likely a permissions issue
-          if (fallbackError.message && fallbackError.message.includes('policy')) {
-            throw new Error(`Upload failed due to permissions: ${fallbackError.message}. Please contact administrator.`);
-          }
-
-          // Try chat_attachments as a last resort
-          console.log("Falling back to chat_attachments bucket");
-          const { data: uploadData, error: uploadError } = await supabase.storage
+          
+        if (!chatAttachError) {
+          // Get the public URL
+          const { data: publicUrlData } = await supabase.storage
             .from('chat_attachments')
-            .upload(secureFilePath, file, {
+            .getPublicUrl(filePath);
+            
+          fileUrl = publicUrlData.publicUrl;
+          uploadSuccess = true;
+          console.log('File uploaded successfully to chat_attachments bucket');
+        } else {
+          console.error('chat_attachments upload failed:', chatAttachError);
+        }
+      } catch (err) {
+        console.error('Error with chat_attachments bucket:', err);
+      }
+      
+      // If chat_attachments failed, try user-content bucket
+      if (!uploadSuccess) {
+        try {
+          const userContentPath = `chat_files/${user.id}/${fileName}`;
+          
+          const { data: userContentData, error: userContentError } = await supabase.storage
+            .from('user-content')
+            .upload(userContentPath, file, {
               cacheControl: '3600',
               upsert: true
             });
-
-          if (uploadError) {
-            console.error('chat_attachments upload failed:', uploadError);
-            throw new Error(`Upload failed: ${uploadError.message}`);
+            
+          if (!userContentError) {
+            // Get the public URL
+            const { data: publicUrlData } = await supabase.storage
+              .from('user-content')
+              .getPublicUrl(userContentPath);
+              
+            fileUrl = publicUrlData.publicUrl;
+            uploadSuccess = true;
+            console.log('File uploaded successfully to user-content bucket');
+          } else {
+            console.error('user-content upload failed:', userContentError);
+            throw userContentError;
           }
-
-          uploadBucket = 'chat_attachments';
-          const { data: publicUrlData } = await supabase.storage
-            .from('chat_attachments')
-            .getPublicUrl(secureFilePath);
-          fileUrl = publicUrlData.publicUrl;
-
-        } else {
-          uploadBucket = 'user-content';
-          const { data: publicUrlData } = await supabase.storage
-            .from('user-content')
-            .getPublicUrl(fallbackPath);
-          fileUrl = publicUrlData.publicUrl;
+        } catch (err) {
+          console.error('Error with user-content bucket:', err);
+          throw err;
         }
-
-      } catch (error: any) {
-        console.error('All upload attempts failed:', error);
-        if (error.message && error.message.includes('policy')) {
-          throw new Error('Upload failed due to security policy. Your user account may not have permission to upload files.');
-        }
-        throw error;
+      }
+      
+      if (!uploadSuccess || !fileUrl) {
+        throw new Error('Failed to upload file to any storage bucket');
       }
 
-      console.log('File uploaded successfully to bucket:', uploadBucket);
-      console.log('File public URL:', fileUrl);
-
+      // Create the attachment object with the file information
       const attachment: FileAttachment = {
         id: `file-${Date.now()}`,
         name: file.name,
@@ -174,20 +173,25 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
         size: file.size,
       };
 
-      console.log("File uploaded successfully:", attachment);
-
+      console.log("File attachment created:", attachment);
       setFilePreview(attachment);
+      
+      // Clear the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      
     } catch (error: any) {
       console.error('Error uploading file:', error);
       let errorMessage = "Something went wrong while uploading the file";
 
       if (error.message) {
-        if (error.message.includes('policy')) {
-          errorMessage = "Upload failed due to security policy. Please ensure you're logged in and have permission to upload.";
+        if (error.message.includes('new row violates row-level security')) {
+          errorMessage = "Upload failed due to security policy. Your account doesn't have permission to upload files.";
         } else if (error.message.includes('size')) {
           errorMessage = "File size exceeds the maximum allowed limit (5MB).";
         } else if (error.message.includes('not found')) {
-          errorMessage = "Storage bucket not found. Please refresh and try again.";
+          errorMessage = "Storage bucket not found. Please contact administrator.";
         } else {
           errorMessage = error.message;
         }
@@ -213,19 +217,32 @@ const ChatBox = ({ chat, messages, onSendMessage, isSending = false, refreshMess
       try {
         const url = new URL(filePreview.url);
         const pathParts = url.pathname.split('/');
-        const bucketIndex = pathParts.findIndex(part => part === 'storage') + 2; // +2 to skip 'storage/v1/'
-        if (bucketIndex >= 2) {
+        
+        // Determine bucket name from URL
+        const bucketName = url.pathname.includes('chat_attachments') ? 'chat_attachments' : 'user-content';
+        
+        // Find the start of the actual path within the bucket
+        let bucketIndex = -1;
+        if (bucketName === 'chat_attachments') {
+          bucketIndex = pathParts.findIndex(part => part === 'chat_attachments') + 1;
+        } else {
+          bucketIndex = pathParts.findIndex(part => part === 'user-content') + 1;
+        }
+        
+        if (bucketIndex > 0) {
           const filePath = pathParts.slice(bucketIndex).join('/');
-
+          console.log(`Attempting to remove file from ${bucketName}:`, filePath);
+          
           // Delete the file from storage
           supabase.storage
-            .from('chat_attachments')
+            .from(bucketName)
             .remove([filePath])
-            .then(() => {
-              console.log('Cancelled file upload, removed from storage');
-            })
-            .catch(err => {
-              console.error("Error removing file from storage:", err);
+            .then(({ data, error }) => {
+              if (error) {
+                console.error(`Error removing file from ${bucketName}:`, error);
+              } else {
+                console.log(`Successfully removed file from ${bucketName}:`, data);
+              }
             });
         }
       } catch (e) {
